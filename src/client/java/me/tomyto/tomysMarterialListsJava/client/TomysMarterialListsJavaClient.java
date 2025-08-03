@@ -1,14 +1,17 @@
 package me.tomyto.tomysMarterialListsJava.client;
 
 import io.wispforest.owo.ui.base.BaseOwoScreen;
+import io.wispforest.owo.ui.component.Components;
 import io.wispforest.owo.ui.container.Containers;
 import io.wispforest.owo.ui.container.FlowLayout;
 import io.wispforest.owo.ui.core.*;
+import io.wispforest.owo.ui.core.Component;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.util.InputUtil;
+import net.minecraft.text.Text;
 import org.jetbrains.annotations.NotNull;
 import io.wispforest.owo.ui.core.OwoUIAdapter;
 
@@ -54,9 +57,21 @@ public class TomysMarterialListsJavaClient implements ClientModInitializer {
 
         @Override
         protected void build(FlowLayout rootComponent) {
-            rootComponent.surface(Surface.VANILLA_TRANSLUCENT);
+            rootComponent.surface(Surface.VANILLA_TRANSLUCENT)
+                    .horizontalAlignment(HorizontalAlignment.LEFT)
+                    .verticalAlignment(VerticalAlignment.BOTTOM);
+
+            rootComponent.child(
+                    Components.button(
+                            Text.literal("Test"),
+                            button -> { System.out.println("click");}
+                    )
+            );
         }
 
+
+
+        // Close gui when button pressed - toggolable GUI mechanics
         @Override
         public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
             if (openScreenKeyBind.matchesKey(keyCode, scanCode)) {

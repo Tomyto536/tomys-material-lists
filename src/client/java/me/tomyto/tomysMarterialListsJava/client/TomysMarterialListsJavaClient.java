@@ -4,6 +4,7 @@ import io.wispforest.owo.ui.base.BaseOwoScreen;
 import io.wispforest.owo.ui.component.Components;
 import io.wispforest.owo.ui.container.Containers;
 import io.wispforest.owo.ui.container.FlowLayout;
+import io.wispforest.owo.ui.container.GridLayout;
 import io.wispforest.owo.ui.core.*;
 import io.wispforest.owo.ui.core.Component;
 import io.wispforest.owo.ui.core.Insets;
@@ -12,7 +13,13 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.util.InputUtil;
+import net.minecraft.command.argument.ItemStringReader;
+import net.minecraft.item.Item;
+import net.minecraft.item.ItemStack;
+import net.minecraft.item.Items;
+import net.minecraft.registry.Registries;
 import net.minecraft.text.Text;
+import net.minecraft.util.Identifier;
 import org.jetbrains.annotations.NotNull;
 import io.wispforest.owo.ui.core.OwoUIAdapter;
 
@@ -47,11 +54,28 @@ public class TomysMarterialListsJavaClient implements ClientModInitializer {
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             while (openScreenKeyBind.wasPressed()) {
                 if (client.currentScreen == null ) {
-                    client.setScreen(new MaterialListScreen());
+                    Path materialFile = getPath();
+                    List<MaterialEntry> entries = MaterialParser.parseMaterialFile(materialFile);
+
+                    //for testing
+                    for (MaterialEntry entry: entries) {
+                        System.out.println(entry);
+                    }
+
+                    client.setScreen(new MaterialListScreen(entries));
                 }
             }
         });
 
+    }
+
+    //Get the path of the currently used file
+    public Path getPath() {
+        return MinecraftClient.getInstance().runDirectory
+                .toPath()
+                .resolve("config")
+                .resolve("litematica")
+                .resolve("material_list_2025-08-02_17.01.40.txt");
     }
 
     // Line content for the material list
@@ -102,39 +126,90 @@ public class TomysMarterialListsJavaClient implements ClientModInitializer {
 
             return materials;
         }
+    }
 
+    public static Component icon(String name) {
+        return Components.texture(
+                new Identifier
+        )
     }
 
 
     public class MaterialListScreen extends BaseOwoScreen<io.wispforest.owo.ui.container.FlowLayout> {
 
+        private final List<MaterialEntry> materialEntries;
+
+        public MaterialListScreen(List<MaterialEntry> materialEntries) {
+            this.materialEntries = materialEntries;
+        }
 
         @Override
         protected @NotNull OwoUIAdapter<io.wispforest.owo.ui.container.FlowLayout> createAdapter() {
             return OwoUIAdapter.create(this, Containers::verticalFlow);
         }
 
+        public Integer numberShulkers(MaterialEntry entry) {
+            return (int) entry.total/1728;
+        }
+        public Integer numberStacks(MaterialEntry entry) {
+            return (int) (entry.total - numberShulkers(entry))/64;
+        }
+        public Integer numberItems(MaterialEntry entry) {
+            return (int) (entry.total - numberShulkers(entry) - numberStacks(entry));
+        }
+
+        public GridLayout createMaterialRowGrid(MaterialEntry entry, ItemStack itemStack) {
+            GridLayout rowGrid = Containers.grid(Sizing.fill(100), Sizing.fixed(28), 1, 5);
+
+            // Item Icon
+            rowGrid.child(Components.item(itemStack).sizing(Sizing.fixed(20), Sizing.fixed(20)), 0, 0);
+
+            // Item Name
+            rowGrid.child(Components.label(Text.literal(entry.name))
+                    .horizontalTextAlignment(HorizontalAlignment.LEFT), 0, 1);
+
+            // Shulker Icon
+
+
+            // Add horizontal container with number and icon
+            rowGrid.child(Containers.horizontalFlow(Sizing.fixed(60), Sizing.content())
+                            .child(Components.label(Text.literal(String.valueOf(numberShulkers(entry)))))
+                            .child(Components.texture(shulkerIcon, 0, 0, 16, 16, 16, 16)
+                                    .sizing(Sizing.fixed(16), Sizing.fixed(16)))
+                    , 0, 2); // Add it to column 2
+
+            return rowGrid;
+        }
+
+        private ItemStack resolveItemStack(String name) {
+            for (Identifier id : Registries.ITEM.getIds()) {
+                Item item = Registries.ITEM.get(id);
+                String displayName = item.getName().getString();
+
+                if (displayName.equalsIgnoreCase(name)) {
+                    return new ItemStack(item);
+                }
+            }
+            //Fallback just in case
+            return new ItemStack(Items.BARRIER);
+        }
+
+
         @Override
         protected void build(FlowLayout rootComponent) {
-
-            Path filePath = Paths.get("Minecraft", "Mods", "Tomys-Marterial-Lists-Java", "run", "config", "litematica", "example.txt");
-            List<MaterialParser.MaterialEntry> materials = MaterialParser.parseMaterialFile(filePath);
 
             rootComponent.surface(Surface.VANILLA_TRANSLUCENT)
                     .horizontalAlignment(HorizontalAlignment.LEFT)
                     .verticalAlignment(VerticalAlignment.BOTTOM);
 
+
             //Vertical scroll container for the material list
             FlowLayout scrollContent = Containers.verticalFlow(Sizing.content(), Sizing.content());
 
-            //Testing
-            for (int i = 1; i <= 20; i++) {
-                scrollContent.child(
-                        Components.button(
-                                Text.literal("Testing " + i),
-                                button -> System.out.println("Clicked button ")
-                        )
-                );
+            //Showing all the materials
+            for (MaterialEntry entry : materialEntries) {
+                ItemStack stack = resolveItemStack(entry.name);
+                scrollContent.child(createMaterialRowGrid(entry, stack));
             }
 
 

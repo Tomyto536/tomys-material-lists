@@ -130,8 +130,11 @@ public class TomysMarterialListsJavaClient implements ClientModInitializer {
 
     public static Component icon(String name) {
         return Components.texture(
-                new Identifier
-        )
+                Identifier.of("tomys-marterial-lists-java", "textures/gui/" + name + ".png"),
+                0, 0,        // u, v (top-left corner)
+                32, 32,      // regionWidth
+                32, 32       // textureWidth, textureHeight (the full PNG dimensions)
+        );
     }
 
 
@@ -158,25 +161,44 @@ public class TomysMarterialListsJavaClient implements ClientModInitializer {
             return (int) (entry.total - numberShulkers(entry) - numberStacks(entry));
         }
 
-        public GridLayout createMaterialRowGrid(MaterialEntry entry, ItemStack itemStack) {
+        public GridLayout createMaterialRowGrid(MaterialEntry entry, ItemStack itemStack, int index) {
             GridLayout rowGrid = Containers.grid(Sizing.fill(100), Sizing.fixed(28), 1, 5);
 
+            if (index % 2 == 0) {
+                rowGrid.surface(Surface.flat(0x000000));
+            } else {
+                rowGrid.surface(Surface.flat(0x36403f));
+            }
+
             // Item Icon
-            rowGrid.child(Components.item(itemStack).sizing(Sizing.fixed(20), Sizing.fixed(20)), 0, 0);
+            rowGrid.child(Components.item(itemStack)
+                    .sizing(Sizing.fixed(20), Sizing.fixed(20)), 0, 0);
 
             // Item Name
-            rowGrid.child(Components.label(Text.literal(entry.name))
-                    .horizontalTextAlignment(HorizontalAlignment.LEFT), 0, 1);
+            FlowLayout nameContainer = Containers.horizontalFlow(Sizing.fill(100), Sizing.fixed(28));
+            nameContainer.verticalAlignment(VerticalAlignment.CENTER);
 
-            // Shulker Icon
+            nameContainer.child(
+                    Components.label(Text.literal(entry.name))
+                            .horizontalTextAlignment(HorizontalAlignment.LEFT)
+            );
+
+            rowGrid.child(nameContainer, 0, 1);
 
 
-            // Add horizontal container with number and icon
-            rowGrid.child(Containers.horizontalFlow(Sizing.fixed(60), Sizing.content())
-                            .child(Components.label(Text.literal(String.valueOf(numberShulkers(entry)))))
-                            .child(Components.texture(shulkerIcon, 0, 0, 16, 16, 16, 16)
-                                    .sizing(Sizing.fixed(16), Sizing.fixed(16)))
-                    , 0, 2); // Add it to column 2
+            // Container for all the item numbers
+            FlowLayout shulkerContainer = Containers.horizontalFlow(Sizing.fixed(60), Sizing.content());
+            shulkerContainer.verticalAlignment(VerticalAlignment.CENTER);
+
+            shulkerContainer.child(
+                    Components.label(Text.literal(String.valueOf(numberShulkers(entry))))
+            );
+            shulkerContainer.child(
+                    icon("shulker_icon2").sizing(Sizing.fixed(16), Sizing.fixed(16)) // Icon for number of shulkers
+            );
+
+            // Add it to the grid
+            rowGrid.child(shulkerContainer, 0, 2);
 
             return rowGrid;
         }
@@ -207,9 +229,11 @@ public class TomysMarterialListsJavaClient implements ClientModInitializer {
             FlowLayout scrollContent = Containers.verticalFlow(Sizing.content(), Sizing.content());
 
             //Showing all the materials
+            int index = 0;
             for (MaterialEntry entry : materialEntries) {
                 ItemStack stack = resolveItemStack(entry.name);
-                scrollContent.child(createMaterialRowGrid(entry, stack));
+                scrollContent.child(createMaterialRowGrid(entry, stack, index));
+                index++;
             }
 
 

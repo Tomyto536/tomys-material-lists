@@ -1,6 +1,7 @@
 package me.tomyto.tomysMarterialListsJava.client;
 
 import io.wispforest.owo.ui.base.BaseOwoScreen;
+import io.wispforest.owo.ui.component.CheckboxComponent;
 import io.wispforest.owo.ui.component.Components;
 import io.wispforest.owo.ui.container.Containers;
 import io.wispforest.owo.ui.container.FlowLayout;
@@ -112,12 +113,12 @@ public class TomysMarterialListsJavaClient implements ClientModInitializer {
                     Matcher matcher = MATERIAL_LINE_PATTERN.matcher(line);
                     if (matcher.matches()) {
                         String rawName = matcher.group(1).trim();
-                        int total = Integer.parseInt(matcher.group(2));
+                        int missing = Integer.parseInt(matcher.group(3));
                         boolean marked = rawName.startsWith("*");
 
                         String name = marked ? rawName.substring(1).trim() : rawName;
 
-                        materials.add(new MaterialEntry(name, total, marked));
+                        materials.add(new MaterialEntry(name, missing, marked));
                     }
                 }
             } catch (IOException e) {
@@ -155,24 +156,23 @@ public class TomysMarterialListsJavaClient implements ClientModInitializer {
             return (int) entry.total/1728;
         }
         public Integer numberStacks(MaterialEntry entry) {
-            return (int) (entry.total - numberShulkers(entry))/64;
+            return (int) (entry.total % 1728)/64;
         }
         public Integer numberItems(MaterialEntry entry) {
-            return (int) (entry.total - numberShulkers(entry) - numberStacks(entry));
+            return (int) (entry.total % 64);
         }
 
         public GridLayout createMaterialRowGrid(MaterialEntry entry, ItemStack itemStack, int index) {
             GridLayout rowGrid = Containers.grid(Sizing.fill(100), Sizing.fixed(28), 1, 5);
 
-            if (index % 2 == 0) {
-                rowGrid.surface(Surface.flat(0x000000));
-            } else {
-                rowGrid.surface(Surface.flat(0x36403f));
-            }
+            rowGrid.surface(Surface.DARK_PANEL); //Offer light and dark mode?
 
             // Item Icon
             rowGrid.child(Components.item(itemStack)
-                    .sizing(Sizing.fixed(20), Sizing.fixed(20)), 0, 0);
+                    .sizing(Sizing.fixed(20), Sizing.fixed(20))
+                    .margins(Insets.both(12, 4))
+                    , 0, 0)
+            ;
 
             // Item Name
             FlowLayout nameContainer = Containers.horizontalFlow(Sizing.fill(100), Sizing.fixed(28));
@@ -183,22 +183,29 @@ public class TomysMarterialListsJavaClient implements ClientModInitializer {
                             .horizontalTextAlignment(HorizontalAlignment.LEFT)
             );
 
-            rowGrid.child(nameContainer, 0, 1);
+            rowGrid.child(nameContainer.verticalAlignment(VerticalAlignment.CENTER), 0, 1);
 
 
             // Container for all the item numbers
-            FlowLayout shulkerContainer = Containers.horizontalFlow(Sizing.fixed(60), Sizing.content());
-            shulkerContainer.verticalAlignment(VerticalAlignment.CENTER);
+            FlowLayout quantity = Containers.horizontalFlow(Sizing.fixed(60), Sizing.content());
+            quantity.verticalAlignment(VerticalAlignment.CENTER);
 
-            shulkerContainer.child(
+            quantity.child(
                     Components.label(Text.literal(String.valueOf(numberShulkers(entry))))
+                            .margins(Insets.right(8))
             );
-            shulkerContainer.child(
+            quantity.child(
                     icon("shulker_icon2").sizing(Sizing.fixed(16), Sizing.fixed(16)) // Icon for number of shulkers
             );
 
+
+
             // Add it to the grid
-            rowGrid.child(shulkerContainer, 0, 2);
+            rowGrid.child(quantity
+                            .horizontalAlignment(HorizontalAlignment.RIGHT)
+                            .verticalAlignment(VerticalAlignment.CENTER)
+                            .margins(Insets.top(6))
+                    , 0, 2);
 
             return rowGrid;
         }
@@ -249,10 +256,14 @@ public class TomysMarterialListsJavaClient implements ClientModInitializer {
             // Bottom bar (fixed 30px height)
             rootComponent.child(
                     Containers.horizontalFlow(Sizing.fill(100), Sizing.fixed(30))
-                            .child(Components.label(Text.literal("Bottom Bar")))
+                            .child(
+                                    Components.button(
+                                            Text.literal("Select Material List"),
+                                            button -> MinecraftClient.getInstance().setScreen(new selectScreen())
+                                    ).sizing(Sizing.fixed(150), Sizing.fixed(20))
+                            )
                             .padding(Insets.of(5))
-                            .horizontalAlignment(HorizontalAlignment.CENTER)
-            );
+                            .horizontalAlignment(HorizontalAlignment.LEFT));
         }
 
 
@@ -267,6 +278,129 @@ public class TomysMarterialListsJavaClient implements ClientModInitializer {
             return super.keyPressed(keyCode, scanCode, modifiers);
         }
 
+    }
+
+    public class selectScreen extends BaseOwoScreen<FlowLayout> {
+
+        private Path selectedFile = null;
+
+        @Override
+        protected @NotNull OwoUIAdapter<FlowLayout> createAdapter() {
+            return OwoUIAdapter.create(this, Containers::verticalFlow);
+        }
+
+        private void openMaterialList(Path file) {
+            List<TomysMarterialListsJavaClient.MaterialEntry> entries =
+                    TomysMarterialListsJavaClient.MaterialParser.parseMaterialFile(file);
+            MinecraftClient.getInstance().setScreen(
+                    new TomysMarterialListsJavaClient.MaterialListScreen(entries)
+            );
+        }
+
+        @Override
+        protected void build(FlowLayout rootComponent) {
+
+            Path litematicaFolder = MinecraftClient.getInstance()
+                            .runDirectory.toPath()
+                            .resolve("config")
+                            .resolve("litematica");
+
+            List<Path> txtFiles = new ArrayList<>();
+            try {
+                if (Files.exists(litematicaFolder)) {
+                    txtFiles = Files.list(litematicaFolder)
+                            .filter(p -> p.toString().endsWith(".txt"))
+                            .sorted()
+                            .toList();
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+
+            rootComponent.surface(Surface.VANILLA_TRANSLUCENT)
+                    .horizontalAlignment(HorizontalAlignment.LEFT)
+                    .verticalAlignment(VerticalAlignment.TOP);
+
+            FlowLayout scrollContent = Containers.verticalFlow(Sizing.content(), Sizing.content());
+            for (Path file : txtFiles) {
+                String fileName = file.getFileName().toString();
+                CheckboxComponent checkBox = Components.checkbox(Text.literal(fileName));
+
+                checkBox.onChanged(newValue -> {
+                    if (newValue) {
+                        selectedFile = file;
+
+                        // Uncheck all other checkboxes inside wrappers
+                        scrollContent.children().forEach(wrapper -> {
+                            if (wrapper instanceof FlowLayout flow) {
+                                flow.children().forEach(child -> {
+                                    if (child instanceof CheckboxComponent cb && cb != checkBox) {
+                                        cb.checked(false);
+                                    }
+                                });
+                            }
+                        });
+
+                    } else if (selectedFile == file) {
+                        selectedFile = null;
+                    }
+                });
+
+                FlowLayout wrapper = Containers.horizontalFlow(Sizing.fill(100), Sizing.fixed(20));
+                wrapper.child(checkBox);
+                wrapper.surface(Surface.DARK_PANEL);
+                scrollContent.child(wrapper);
+                scrollContent.children().forEach(child -> {
+                    if (child instanceof CheckboxComponent cb && cb != checkBox) {
+                        cb.checked(false);
+                    }
+                });
+            }
+
+
+            Component scrollContainer = Containers.verticalScroll(
+                    Sizing.fill(100),
+                    Sizing.fill(90),
+                    scrollContent
+            ).margins(Insets.of(10));
+            rootComponent.child(scrollContainer);
+
+            //Bar with buttons
+            rootComponent.child(
+                    Containers.horizontalFlow(Sizing.fill(100), Sizing.fixed(30))
+                            //Open selected File button
+                            .child(
+                                    Components.button(
+                                            Text.literal("Open Selected File"),
+                                            button -> {
+                                                if (selectedFile != null) {
+                                                    openMaterialList(selectedFile);
+                                                }
+                                            }
+                                    ).sizing(Sizing.fixed(160), Sizing.fixed(20))
+                                            .margins(Insets.left(30))
+                            )
+                            //Back Button
+                            .child(
+                                    Components.button(
+                                            Text.literal("Back"),
+                                            button -> MinecraftClient.getInstance().setScreen(null)
+                                    ).sizing(Sizing.fixed(80), Sizing.fixed(20))
+                            )
+
+            );
+
+        }
+
+        @Override
+        public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+            // Close the menu on your keybind
+            if (TomysMarterialListsJavaClient.openScreenKeyBind.matchesKey(keyCode, scanCode)) {
+                MinecraftClient.getInstance().setScreen(null);
+                return true;
+            }
+            return super.keyPressed(keyCode, scanCode, modifiers);
+        }
     }
 
 }

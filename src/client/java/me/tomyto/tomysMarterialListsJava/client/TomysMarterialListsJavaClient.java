@@ -1,11 +1,15 @@
 package me.tomyto.tomysMarterialListsJava.client;
 
+import com.mojang.brigadier.context.ContextChain;
+import com.mojang.datafixers.types.templates.Check;
 import io.wispforest.owo.ui.base.BaseOwoScreen;
+import io.wispforest.owo.ui.component.BoxComponent;
 import io.wispforest.owo.ui.component.CheckboxComponent;
 import io.wispforest.owo.ui.component.Components;
 import io.wispforest.owo.ui.container.Containers;
 import io.wispforest.owo.ui.container.FlowLayout;
 import io.wispforest.owo.ui.container.GridLayout;
+import io.wispforest.owo.ui.container.StackLayout;
 import io.wispforest.owo.ui.core.*;
 import io.wispforest.owo.ui.core.Component;
 import io.wispforest.owo.ui.core.Insets;
@@ -23,8 +27,9 @@ import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
 import org.jetbrains.annotations.NotNull;
 import io.wispforest.owo.ui.core.OwoUIAdapter;
+import java.awt.Color;
 
-
+import org.jetbrains.annotations.Nullable;
 import org.lwjgl.glfw.GLFW;
 import net.minecraft.client.option.KeyBinding;
 
@@ -63,7 +68,7 @@ public class TomysMarterialListsJavaClient implements ClientModInitializer {
                         System.out.println(entry);
                     }
 
-                    client.setScreen(new MaterialListScreen(entries));
+                    client.setScreen(new MaterialListScreen(entries, materialFile));
                 }
             }
         });
@@ -81,9 +86,9 @@ public class TomysMarterialListsJavaClient implements ClientModInitializer {
 
     // Line content for the material list
     public static class MaterialEntry {
-        public final String name;
-        public final int total;
-        public final boolean marked;
+        public String name;
+        public int total;
+        public boolean marked;
 
         public MaterialEntry(String name, int total, boolean marked) {
             this.name = name;
@@ -129,6 +134,7 @@ public class TomysMarterialListsJavaClient implements ClientModInitializer {
         }
     }
 
+
     public static Component icon(String name) {
         return Components.texture(
                 Identifier.of("tomys-marterial-lists-java", "textures/gui/" + name + ".png"),
@@ -142,9 +148,12 @@ public class TomysMarterialListsJavaClient implements ClientModInitializer {
     public class MaterialListScreen extends BaseOwoScreen<io.wispforest.owo.ui.container.FlowLayout> {
 
         private final List<MaterialEntry> materialEntries;
+        private final List<GridLayout> materialRows = new ArrayList<>();
+        private final Path materialFilePath;
 
-        public MaterialListScreen(List<MaterialEntry> materialEntries) {
+        public MaterialListScreen(List<MaterialEntry> materialEntries, Path materialFilePath) {
             this.materialEntries = materialEntries;
+            this.materialFilePath = materialFilePath;
         }
 
         @Override
@@ -162,33 +171,79 @@ public class TomysMarterialListsJavaClient implements ClientModInitializer {
             return (int) (entry.total % 64);
         }
 
-        public GridLayout createMaterialRowGrid(MaterialEntry entry, ItemStack itemStack, int index) {
-            GridLayout rowGrid = Containers.grid(Sizing.fill(100), Sizing.fixed(28), 1, 5);
+        //Function to higlight the row. Un-highlights all other rows
+        private void highlight(@Nullable GridLayout rowGrid) {
+            int color = new Color(44, 106,125, 255).getRGB();
 
+            for (GridLayout row: materialRows) {
+                row.surface(Surface.DARK_PANEL);
+            }
+            if (rowGrid != null) {
+                rowGrid.surface(Surface.flat(color));
+
+            }
+        }
+
+        private void writeToFile() {
+            try (BufferedWriter writer = Files.newBufferedWriter(materialFilePath)) {
+                for (MaterialEntry entry : materialEntries) {
+                    // Keep the same formatting as in your original material file
+                    String line = String.format(
+                            "| %-30s | %5d | %5d | %5d |",
+                            entry.marked ? "* " + entry.name : entry.name,
+                            0, // Replace with actual needed value if applicable
+                            entry.total,
+                            0  // Replace with actual needed value if applicable
+                    );
+                    writer.write(line);
+                    writer.newLine();
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+
+        private void checkItemOff(MaterialEntry entry, boolean checked) {
+            if (checked) {
+                if (!entry.marked) {
+                    entry.name = entry.name;
+                    entry.marked = true;
+                }
+                materialEntries.remove(entry);
+                materialEntries.add(0, entry);
+            } else {
+                if (entry.marked) {
+                    entry.name = entry.name.replaceFirst("^\\*\\s*", "");
+                    entry.marked = false;
+                }
+            }
+        }
+
+        public Component createMaterialRowGrid(MaterialEntry entry, ItemStack itemStack, int index) {
+            GridLayout rowGrid = Containers.grid(Sizing.fill(100), Sizing.fixed(28), 1, 5);
             rowGrid.surface(Surface.DARK_PANEL); //Offer light and dark mode?
 
-            // Item Icon
-            rowGrid.child(Components.item(itemStack)
+            // Item Icon ---------------------------------------------------------
+            Component iconComponent = Components.item(itemStack)
                     .sizing(Sizing.fixed(20), Sizing.fixed(20))
-                    .margins(Insets.both(12, 4))
-                    , 0, 0)
-            ;
+                    .margins(Insets.both(12, 4));
 
-            // Item Name
+            rowGrid.child(iconComponent, 0, 0);
+
+            // Item Name ----------------------------------------------------------
+            Component nameLabel = Components.label(Text.literal(entry.name))
+                    .horizontalTextAlignment(HorizontalAlignment.LEFT);
+
             FlowLayout nameContainer = Containers.horizontalFlow(Sizing.fill(100), Sizing.fixed(28));
             nameContainer.verticalAlignment(VerticalAlignment.CENTER);
-
-            nameContainer.child(
-                    Components.label(Text.literal(entry.name))
-                            .horizontalTextAlignment(HorizontalAlignment.LEFT)
-            );
-
+            nameContainer.child(nameLabel);
             rowGrid.child(nameContainer.verticalAlignment(VerticalAlignment.CENTER), 0, 1);
 
 
-            // Container for all the item numbers
+            // Container for all the item numbers ---------------------------------------------------------
             FlowLayout quantity = Containers.horizontalFlow(Sizing.fixed(60), Sizing.content());
             quantity.verticalAlignment(VerticalAlignment.CENTER);
+
 
             quantity.child(
                     Components.label(Text.literal(String.valueOf(numberShulkers(entry))))
@@ -198,8 +253,6 @@ public class TomysMarterialListsJavaClient implements ClientModInitializer {
                     icon("shulker_icon2").sizing(Sizing.fixed(16), Sizing.fixed(16)) // Icon for number of shulkers
             );
 
-
-
             // Add it to the grid
             rowGrid.child(quantity
                             .horizontalAlignment(HorizontalAlignment.RIGHT)
@@ -207,7 +260,34 @@ public class TomysMarterialListsJavaClient implements ClientModInitializer {
                             .margins(Insets.top(6))
                     , 0, 2);
 
-            return rowGrid;
+            //CheckBox ------------------------------------------------------------------------
+            CheckboxComponent checkbox = Components.checkbox(Text.empty());
+            checkbox.onChanged(newValue -> {
+                checkItemOff(entry, newValue);
+                writeToFile();
+                MinecraftClient.getInstance().setScreen(new MaterialListScreen(materialEntries, materialFilePath));
+            });
+            FlowLayout checkboxContainer = Containers.horizontalFlow(Sizing.fill(100), Sizing.fill(100));
+            checkboxContainer.horizontalAlignment(HorizontalAlignment.RIGHT);
+            checkboxContainer.child(checkbox);
+            checkbox.margins(Insets.both(10, 6));
+
+            rowGrid.child(checkbox, 0, 4);
+
+            //Tracking list
+            materialRows.add(rowGrid);
+
+            StackLayout rowWrapper = Containers.stack(Sizing.fill(100), Sizing.fixed(28));
+            rowWrapper.child(rowGrid);
+
+            Component hoverLayer = Components.box(Sizing.fill(100), Sizing.fill(100));
+
+            hoverLayer.mouseEnter().subscribe(() -> {
+                highlight(rowGrid);
+            });
+            rowWrapper.child(hoverLayer);
+
+            return rowWrapper;
         }
 
         private ItemStack resolveItemStack(String name) {
@@ -238,6 +318,9 @@ public class TomysMarterialListsJavaClient implements ClientModInitializer {
             //Showing all the materials
             int index = 0;
             for (MaterialEntry entry : materialEntries) {
+                //Ignore if * in front (checked off)
+                if (entry.marked) continue;
+
                 ItemStack stack = resolveItemStack(entry.name);
                 scrollContent.child(createMaterialRowGrid(entry, stack, index));
                 index++;
@@ -293,7 +376,7 @@ public class TomysMarterialListsJavaClient implements ClientModInitializer {
             List<TomysMarterialListsJavaClient.MaterialEntry> entries =
                     TomysMarterialListsJavaClient.MaterialParser.parseMaterialFile(file);
             MinecraftClient.getInstance().setScreen(
-                    new TomysMarterialListsJavaClient.MaterialListScreen(entries)
+                    new TomysMarterialListsJavaClient.MaterialListScreen(entries, file)
             );
         }
 

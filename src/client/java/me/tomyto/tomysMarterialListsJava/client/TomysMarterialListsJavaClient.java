@@ -201,6 +201,9 @@ public class TomysMarterialListsJavaClient implements ClientModInitializer {
         private enum HighlightMode {KEYBOARD, MOUSE}
         private HighlightMode highlightMode = HighlightMode.KEYBOARD;
         private boolean highlightFromKeyboard = true;
+        private final List<MaterialEntry> visibleEntries = new ArrayList<>();
+        private Integer initialHighlightIndex = null;
+
 
         public MaterialListScreen(List<MaterialEntry> materialEntries, Path materialFilePath) {
             this.materialEntries = materialEntries;
@@ -225,7 +228,23 @@ public class TomysMarterialListsJavaClient implements ClientModInitializer {
                     return true;
                 }
                 case GLFW.GLFW_KEY_A -> {
-                    System.out.println("A key pressed");
+                    if (highlightedIndex >= 0 && highlightedIndex < materialEntries.size()) {
+                        MaterialEntry entry = visibleEntries.get(highlightedIndex);
+                        boolean newValue = !entry.marked; // Toggle current state
+
+                        // Save index before removing entry
+                        int newHighlightIndex = highlightedIndex;
+
+                        checkItemOff(entry, newValue);
+                        writeToFile();
+
+                        if (newHighlightIndex >= visibleEntries.size() - 1) {
+                            newHighlightIndex = Math.max(visibleEntries.size() - 2, 0); // avoid -1
+                        }
+                        MaterialListScreen newScreen = new MaterialListScreen(materialEntries, materialFilePath);
+                        newScreen.setInitialHighlightIndex(newHighlightIndex);
+                        MinecraftClient.getInstance().setScreen(newScreen);
+                    }
                     return true;
                 }
                 case GLFW.GLFW_KEY_S -> {
@@ -285,6 +304,10 @@ public class TomysMarterialListsJavaClient implements ClientModInitializer {
                 ensureRowVisible(index);
                 highlightFromKeyboard = false; // reset
             }
+        }
+
+        public void setInitialHighlightIndex(int index) {
+            this.initialHighlightIndex = index;
         }
 
         private void ensureRowVisible(int index) {
@@ -427,6 +450,8 @@ public class TomysMarterialListsJavaClient implements ClientModInitializer {
         @Override
         protected void build(FlowLayout rootComponent) {
 
+            visibleEntries.clear();
+
             rootComponent.surface(Surface.VANILLA_TRANSLUCENT)
                     .horizontalAlignment(HorizontalAlignment.LEFT)
                     .verticalAlignment(VerticalAlignment.BOTTOM);
@@ -441,9 +466,15 @@ public class TomysMarterialListsJavaClient implements ClientModInitializer {
                 //Ignore if * in front (checked off)
                 if (entry.marked) continue;
 
+                visibleEntries.add(entry);
+
                 ItemStack stack = resolveItemStack(entry.name);
                 scrollContent.child(createMaterialRowGrid(entry, stack, index));
                 index++;
+            }
+            if (initialHighlightIndex != null && initialHighlightIndex >= 0 && initialHighlightIndex < materialRows.size()) {
+                highlight(initialHighlightIndex);
+                initialHighlightIndex = null; // Reset so it doesn't re-highlight later
             }
 
 

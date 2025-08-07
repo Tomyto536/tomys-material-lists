@@ -6,10 +6,7 @@ import io.wispforest.owo.ui.base.BaseOwoScreen;
 import io.wispforest.owo.ui.component.BoxComponent;
 import io.wispforest.owo.ui.component.CheckboxComponent;
 import io.wispforest.owo.ui.component.Components;
-import io.wispforest.owo.ui.container.Containers;
-import io.wispforest.owo.ui.container.FlowLayout;
-import io.wispforest.owo.ui.container.GridLayout;
-import io.wispforest.owo.ui.container.StackLayout;
+import io.wispforest.owo.ui.container.*;
 import io.wispforest.owo.ui.core.*;
 import io.wispforest.owo.ui.core.Component;
 import io.wispforest.owo.ui.core.Insets;
@@ -38,6 +35,7 @@ import net.minecraft.client.option.KeyBinding;
 import java.io.*;
 import java.nio.file.*;
 import java.util.*;
+import java.util.concurrent.Flow;
 import java.util.regex.*;
 import java.util.regex.Pattern;
 
@@ -45,6 +43,7 @@ public class TomysMarterialListsJavaClient implements ClientModInitializer {
 
     public static KeyBinding openScreenKeyBind;
 
+    public static Path lastUsedMaterialFile = null;
 
     @Override
     public void onInitializeClient() {
@@ -60,13 +59,12 @@ public class TomysMarterialListsJavaClient implements ClientModInitializer {
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             while (openScreenKeyBind.wasPressed()) {
                 if (client.currentScreen == null ) {
-                    Path materialFile = getPath();
-                    List<MaterialEntry> entries = MaterialParser.parseMaterialFile(materialFile);
-
-                    //for testing
-                    for (MaterialEntry entry: entries) {
-                        System.out.println(entry);
+                    Path materialFile = loadLastUsedFilePath();
+                    if (materialFile == null) {
+                        materialFile = getPath();
                     }
+                    TomysMarterialListsJavaClient.lastUsedMaterialFile = materialFile;
+                    List<MaterialEntry> entries = MaterialParser.parseMaterialFile(materialFile);
 
                     client.setScreen(new MaterialListScreen(entries, materialFile));
                 }
@@ -144,16 +142,114 @@ public class TomysMarterialListsJavaClient implements ClientModInitializer {
         );
     }
 
+    public static void saveLastUsedFile(Path path) {
+        Path savePath = MinecraftClient.getInstance().runDirectory.toPath()
+                .resolve("config")
+                .resolve("litematica")
+                .resolve("tomys_material_lists_data.txt");
+
+        ensureLastUsedFileExists();
+
+        try {
+            Files.writeString(savePath, path.toString());
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public static Path loadLastUsedFilePath() {
+        Path savePath = MinecraftClient.getInstance().runDirectory.toPath()
+                .resolve("config")
+                .resolve("litematica")
+                .resolve("tomys_material_lists_data.txt");
+
+        ensureLastUsedFileExists();
+
+        try {
+            if (Files.exists(savePath)) {
+                return Paths.get(Files.readString(savePath));
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+    public static void ensureLastUsedFileExists() {
+        Path savePath = MinecraftClient.getInstance().runDirectory.toPath()
+                .resolve("config")
+                .resolve("litematica")
+                .resolve("tomys_material_lists_data.txt");
+
+        if (Files.notExists(savePath)) {
+            try {
+                Files.createFile(savePath);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
 
     public class MaterialListScreen extends BaseOwoScreen<io.wispforest.owo.ui.container.FlowLayout> {
 
+        private ScrollContainer<FlowLayout> scrollContainer;
         private final List<MaterialEntry> materialEntries;
         private final List<GridLayout> materialRows = new ArrayList<>();
         private final Path materialFilePath;
+        private int highlightedIndex = -1;
+        private enum HighlightMode {KEYBOARD, MOUSE}
+        private HighlightMode highlightMode = HighlightMode.KEYBOARD;
+        private boolean highlightFromKeyboard = true;
 
         public MaterialListScreen(List<MaterialEntry> materialEntries, Path materialFilePath) {
             this.materialEntries = materialEntries;
             this.materialFilePath = materialFilePath;
+        }
+
+        @Override
+        public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+            if (openScreenKeyBind.matchesKey(keyCode, scanCode)) {
+                MinecraftClient.getInstance().setScreen(null);
+                return true;
+            }
+            switch (keyCode) {
+                case GLFW.GLFW_KEY_W -> {
+                    //Move up the material list
+                    if (!materialRows.isEmpty() && highlightedIndex > 0) {
+                        highlightedIndex--;
+                        highlightMode = HighlightMode.KEYBOARD;
+                        highlightFromKeyboard = true;
+                        highlight(highlightedIndex);
+                    }
+                    return true;
+                }
+                case GLFW.GLFW_KEY_A -> {
+                    System.out.println("A key pressed");
+                    return true;
+                }
+                case GLFW.GLFW_KEY_S -> {
+                    //move down the list
+                    if (!materialRows.isEmpty() && highlightedIndex < materialRows.size() - 1) {
+                        highlightedIndex++;
+                        highlightMode = HighlightMode.KEYBOARD;
+                        highlightFromKeyboard = true;
+                        highlight(highlightedIndex);
+                    }
+                    return true;
+                }
+                case GLFW.GLFW_KEY_D -> {
+                    System.out.println("D key pressed");
+                    return true;
+                }
+            }
+            return super.keyPressed(keyCode, scanCode, modifiers);
+        }
+
+        @Override
+        public void mouseMoved(double mouseX, double mouseY) {
+            super.mouseMoved(mouseX, mouseY);
+            highlightMode = HighlightMode.MOUSE;
         }
 
         @Override
@@ -172,15 +268,37 @@ public class TomysMarterialListsJavaClient implements ClientModInitializer {
         }
 
         //Function to higlight the row. Un-highlights all other rows
-        private void highlight(@Nullable GridLayout rowGrid) {
-            int color = new Color(44, 106,125, 255).getRGB();
-
-            for (GridLayout row: materialRows) {
-                row.surface(Surface.DARK_PANEL);
+        private void highlight(int index) {
+            for (int i = 0; i < materialRows.size(); i++) {
+                GridLayout row = materialRows.get(i);
+                if (i == index) {
+                    int color = new Color(44, 106, 125, 255).getRGB();
+                    row.surface(Surface.flat(color));
+                } else {
+                    row.surface(Surface.DARK_PANEL);
+                }
             }
-            if (rowGrid != null) {
-                rowGrid.surface(Surface.flat(color));
 
+            highlightedIndex = index;
+
+            if (highlightFromKeyboard) {
+                ensureRowVisible(index);
+                highlightFromKeyboard = false; // reset
+            }
+        }
+
+        private void ensureRowVisible(int index) {
+            if (scrollContainer == null) return;
+
+            int viewportTop = scrollContainer.y();
+            int viewportBottom = viewportTop + scrollContainer.height();
+
+            Component row = materialRows.get(index);
+            int rowTop = row.y();
+            int rowBottom = rowTop + row.height();
+
+            if (rowTop < viewportTop || rowBottom > viewportBottom) {
+                scrollContainer.scrollTo(row);
             }
         }
 
@@ -283,7 +401,9 @@ public class TomysMarterialListsJavaClient implements ClientModInitializer {
             Component hoverLayer = Components.box(Sizing.fill(100), Sizing.fill(100));
 
             hoverLayer.mouseEnter().subscribe(() -> {
-                highlight(rowGrid);
+                if (highlightMode == HighlightMode.MOUSE) {
+                    highlight(index);
+                }
             });
             rowWrapper.child(hoverLayer);
 
@@ -328,13 +448,12 @@ public class TomysMarterialListsJavaClient implements ClientModInitializer {
 
 
             // Scroll container that fills screen
-            Component scrollContainer = Containers.verticalScroll(
-                    Sizing.fill(100),                      // full width
-                    Sizing.fill(90),          // full height minus 30px
+            this.scrollContainer = Containers.verticalScroll(
+                    Sizing.fill(100),
+                    Sizing.fill(90),
                     scrollContent
-            ).margins(Insets.of(10, 15, 5, 15));
-
-            rootComponent.child(scrollContainer);
+            );
+            rootComponent.child(this.scrollContainer);
 
             // Bottom bar (fixed 30px height)
             rootComponent.child(
@@ -348,19 +467,6 @@ public class TomysMarterialListsJavaClient implements ClientModInitializer {
                             .padding(Insets.of(5))
                             .horizontalAlignment(HorizontalAlignment.LEFT));
         }
-
-
-
-        // Close gui when button pressed - toggolable GUI mechanics
-        @Override
-        public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-            if (openScreenKeyBind.matchesKey(keyCode, scanCode)) {
-                MinecraftClient.getInstance().setScreen(null);
-                return true;
-            }
-            return super.keyPressed(keyCode, scanCode, modifiers);
-        }
-
     }
 
     public class selectScreen extends BaseOwoScreen<FlowLayout> {
@@ -375,6 +481,10 @@ public class TomysMarterialListsJavaClient implements ClientModInitializer {
         private void openMaterialList(Path file) {
             List<TomysMarterialListsJavaClient.MaterialEntry> entries =
                     TomysMarterialListsJavaClient.MaterialParser.parseMaterialFile(file);
+
+            TomysMarterialListsJavaClient.saveLastUsedFile(file);
+            TomysMarterialListsJavaClient.lastUsedMaterialFile = file;
+
             MinecraftClient.getInstance().setScreen(
                     new TomysMarterialListsJavaClient.MaterialListScreen(entries, file)
             );
@@ -393,6 +503,7 @@ public class TomysMarterialListsJavaClient implements ClientModInitializer {
                 if (Files.exists(litematicaFolder)) {
                     txtFiles = Files.list(litematicaFolder)
                             .filter(p -> p.toString().endsWith(".txt"))
+                            .filter(p -> !p.toString().endsWith("data.txt")) // ignore the data file
                             .sorted()
                             .toList();
                 }
